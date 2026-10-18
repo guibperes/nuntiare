@@ -1,0 +1,111 @@
+###
+# @name me
+GET {{baseUrl}}/v1/me
+X-Auth-Token: {{apiToken}}
+
+###
+# @name categories
+GET {{baseUrl}}/v1/categories
+X-Auth-Token: {{apiToken}}
+
+###
+# @name feeds
+GET {{baseUrl}}/v1/feeds
+X-Auth-Token: {{apiToken}}
+
+###
+# @name feeds-by-id
+# @request feed.id 3
+GET {{baseUrl}}/v1/feeds/{{feed.id}}
+X-Auth-Token: {{apiToken}}
+
+###
+# @name feeds-by-id-entries
+# @request feed.id 3
+GET {{baseUrl}}/v1/feeds/{{feed.id}}/entries
+X-Auth-Token: {{apiToken}}
+
+###
+# @name entries
+# @apply {query: {
+#    status: "unread",
+#    limit: 100,
+#    offset: 300,
+#    order: "published_at",
+#    direction: "desc",
+#    starred: false
+# }}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{apiToken}}
+
+###
+# @name entries
+PUT {{baseUrl}}/v1/entries
+X-Auth-Token: {{apiToken}}
+Content-Type: application/json
+
+{
+    "entry_ids": [45],
+    "status": "read"
+}
+
+###
+# @name entries-bookmark-by-id
+# @request entry.id 4273
+PUT {{baseUrl}}/v1/entries/{{entry.id}}/bookmark
+X-Auth-Token: {{apiToken}}
+
+###
+# @name categories
+POST {{baseUrl}}/v1/categories
+X-Auth-Token: {{apiToken}}
+Content-Type: application/json
+
+{
+    "title": "Teste"
+}
+
+###
+# @name categories
+# @request category.id 12
+PUT {{baseUrl}}/v1/categories/{{category.id}}
+X-Auth-Token: {{apiToken}}
+Content-Type: application/json
+
+{
+    "title": "Teste renomeado"
+}
+
+###
+# @name categories
+# @request category.id 12
+DELETE {{baseUrl}}/v1/categories/{{category.id}}
+X-Auth-Token: {{apiToken}}
+
+###
+# @name feeds
+POST {{baseUrl}}/v1/feeds
+Content-Type: application/json
+X-Auth-Token: {{apiToken}}
+
+{
+    "feed_url": "https://feeds.folha.uol.com.br/mercado/rss091.xml",
+    "category_id": 13
+}
+
+###
+# @name feeds-by-id
+# @request feed.id 10
+PUT /v1/feeds/{{feed.id}}
+Content-Type: application/json
+
+{
+    "title": "New Feed Title",
+    "category_id": 3
+}
+
+###
+# @name feeds-by-id
+# @request feed.id 3
+DELETE {{baseUrl}}/v1/feeds/{{feed.id}}
+X-Auth-Token: {{apiToken}}
