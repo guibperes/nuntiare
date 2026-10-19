@@ -1,4 +1,8 @@
 ###
+# @name healthcheck
+GET {{baseUrl}}/healthcheck
+
+###
 # @name me
 GET {{baseUrl}}/v1/me
 X-Auth-Token: {{apiToken}}
