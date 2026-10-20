@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>nuntiare - upstream bug test</title>
+  </head>
+  <body>
+    <outline text="News" title="News">
+      <outline type="rss"
+               text="Folha - Mercado"
+               title="Folha - Mercado"
+               xmlUrl="https://feeds.folha.uol.com.br/mercado/rss091.xml"
+               htmlUrl="https://www1.folha.uol.com.br/mercado/"/>
+    </outline>
+  </body>
+</opml>
