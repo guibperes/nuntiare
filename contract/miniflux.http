@@ -19,7 +19,7 @@ X-Auth-Token: {{apiToken}}
 
 ###
 # @name feeds-by-id
-# @request feed.id 3
+# @request feed.id 85
 GET {{baseUrl}}/v1/feeds/{{feed.id}}
 X-Auth-Token: {{apiToken}}
 
@@ -113,3 +113,12 @@ Content-Type: application/json
 # @request feed.id 3
 DELETE {{baseUrl}}/v1/feeds/{{feed.id}}
 X-Auth-Token: {{apiToken}}
+
+###
+# @name import-opml
+POST {{baseUrl}}/v1/import
+X-Auth-Token: {{apiToken}}
+Content-Type: application/xml
+
+< ./test-import.opml
+
