@@ -1,0 +1,24 @@
+[workspace]
+members = ["crates/*", "bins/*"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+repository = "https://github.com/guibperes/nuntiare"
+license = "GPL-3.0-or-later"
+publish = false
+
+[workspace.dependencies]
+nuntiare-core = { path = "crates/nuntiare-core" }
+nuntiare-store = { path = "crates/nuntiare-store" }
+nuntiare-fetch = { path = "crates/nuntiare-fetch" }
+nuntiare-replication = { path = "crates/nuntiare-replication" }
+nuntiare-api-miniflux = { path = "crates/nuntiare-api-miniflux" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }

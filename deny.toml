@@ -1,0 +1,39 @@
+[graph]
+all-features = true
+
+[advisories]
+# Fails on crates with known security vulnerabilities (RustSec database).
+yanked = "deny"
+
+[licenses]
+# Licenses accepted in dependencies. Extend this list deliberately.
+allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
+# Workspace crates have `publish = false`; don't require a license on them.
+private = { ignore = true }
+# Keep the allow-list stable while dependencies come and go.
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Path dependencies between workspace crates have no version; allow them.
+allow-wildcard-paths = true
+# Architecture rule (design §4.2): only the daemon may depend on adapters.
+deny = [
+  { crate = "nuntiare-store", wrappers = [
+    "nuntiare",
+  ] },
+  { crate = "nuntiare-fetch", wrappers = [
+    "nuntiare",
+  ] },
+  { crate = "nuntiare-replication", wrappers = [
+    "nuntiare",
+  ] },
+  { crate = "nuntiare-api-miniflux", wrappers = [
+    "nuntiare",
+  ] },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
