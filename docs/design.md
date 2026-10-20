@@ -1,6 +1,6 @@
 # nuntiare — Decentralized RSS backend for news-flash / eilmeldung
 
-> **nuntiare** (Latin: "to announce"). Daemon binary: `nuntiared`. Each running instance is a **shard**.
+> **nuntiare** (Latin: "to announce"). Daemon binary: `nuntiare serve`. Each running instance is a **shard**.
 > Status: design + implementation plan. Language: Rust.
 > Last updated: 2026-10-18.
 
@@ -232,7 +232,7 @@ Requirements:
 
 A default category always exists (Miniflux has no uncategorized feeds) and cannot be
 deleted. `POST /v1/import` is not needed: the client's OPML import is broken
-upstream (§2.3); OPML goes through `nuntiared import-opml`.
+upstream (§2.3); OPML goes through `nuntiare import-opml`.
 
 ### 3.5 Edge cases to map
 
@@ -277,7 +277,7 @@ nuntiare/
 │   ├── nuntiare-api-miniflux/    # v1 facade: axum routes, Miniflux DTOs, i64 id mapping
 │   └── nuntiare-api-native/      # v2 native API (placeholder)
 └── bins/
-    └── nuntiared/                # wiring, config, CLI (serve, token, import-opml, join, status)
+    └── nuntiare/                # wiring, config, CLI (serve, token, import-opml, join, status)
 ```
 
 Dependency rule (enforced by crate boundaries):
@@ -287,7 +287,7 @@ nuntiare-api-miniflux ──┐
 nuntiare-api-native   ──┼──► nuntiare-core ◄── nuntiare-store
 nuntiare-replication  ──┘          ▲       ◄── nuntiare-fetch
                                    │
-                         nuntiared (wires adapters into core ports)
+                         nuntiare (wires adapters into core ports)
 ```
 
 APIs never touch `nuntiare-store` directly. `nuntiare-core` defines ports (traits) that
@@ -442,13 +442,13 @@ Each task lists its acceptance criterion ("Done when"). Phases are cumulative.
       identity rule of §4.3, per-feed interval scheduler.
       _Done when_ refetching an unchanged feed creates no new entries.
 - [ ] **P1.5 Synchronous fetch on feed creation** (finding 7).
-- [ ] **P1.6 CLI.** `nuntiared token create|revoke`, `nuntiared import-opml`,
-      `nuntiared export-opml`. _Done when_ the current OPML imports with all feeds and
+- [ ] **P1.6 CLI.** `nuntiare token create|revoke`, `nuntiare import-opml`,
+      `nuntiare export-opml`. _Done when_ the current OPML imports with all feeds and
       categories.
 - [ ] **P1.7 Facade: auth + read endpoints** with deterministic `i64` mapping,
       `/healthcheck`, the status codes, error bodies and required fields of §3.2, and the
       ordering rules of §3.3. _Done when_ snapshot tests (`insta`) match the shape of the
-      P0.1 fixtures and the resterm collection passes against `nuntiared`.
+      P0.1 fixtures and the resterm collection passes against `nuntiare`.
 - [ ] **P1.8 Facade: write endpoints** with the semantics of §3.4 (toggle → value,
       category delete → move to default). _Done when_ integration tests cover every write
       endpoint.
@@ -473,7 +473,7 @@ Each task lists its acceptance criterion ("Done when"). Phases are cumulative.
       _Done when_ unsigned or wrongly signed requests are rejected.
 - [ ] **P2.5 Anti-entropy loop.** Periodic, plus a nudge after local writes; static
       peer list in config. _Done when_ a write on A appears on B within one cycle.
-- [ ] **P2.6 Join / bootstrap.** `nuntiared join <peer>` copies the full op log
+- [ ] **P2.6 Join / bootstrap.** `nuntiare join <peer>` copies the full op log
       (acceptable for two shards).
 - [ ] **P2.7 Fetch coordination** (§4.5) with the preferred shard and jitter.
       _Done when_, with both online, only the preferred shard fetches under normal
@@ -487,7 +487,7 @@ Each task lists its acceptance criterion ("Done when"). Phases are cumulative.
   - feed moved into a category deleted concurrently;
   - the same entry starred on A and unstarred on B;
   - S3, S4 and S5 of §3.5 with eilmeldung on top of each shard.
-- [ ] **P2.10 `nuntiared status`.** Peers, vectors, replication lag, last fetch per feed.
+- [ ] **P2.10 `nuntiare status`.** Peers, vectors, replication lag, last fetch per feed.
 - [ ] **P2.11 Real-world acceptance.** Desktop + notebook on the LAN, then over
       Tailscale; repeat the offline-travel story with eilmeldung on both machines.
 
@@ -497,7 +497,7 @@ retired.
 ### Phase 3 — More than two shards
 
 - [ ] **P3.1 Membership** as a replicated set (`PeerJoin` / `PeerLeave`);
-      `nuntiared peer remove` for dead shards.
+      `nuntiare peer remove` for dead shards.
 - [ ] **P3.2 Peer selection.** Full mesh for small N; random-k gossip as an option.
 - [ ] **P3.3 Discovery.** mDNS (`_nuntiare._tcp`) on the LAN, plus static addresses
       (Tailscale).
