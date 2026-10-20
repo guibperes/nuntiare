@@ -1,0 +1,4 @@
+# Rust version is defined once, in rust-toolchain.toml.
+# This makes mise read it instead of applying its own (or a global) Rust version.
+[settings]
+idiomatic_version_file_enable_tools = ["rust"]
