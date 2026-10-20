@@ -1,0 +1,15 @@
+[package]
+name = "nuntiare-store"
+description = "SQLite persistence: op log and materialized state."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+nuntiare-core.workspace = true
+
+[lints]
+workspace = true

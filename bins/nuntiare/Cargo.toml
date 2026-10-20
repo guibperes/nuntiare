@@ -1,0 +1,19 @@
+[package]
+name = "nuntiare"
+description = "nuntiare shard CLI and daemon."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+nuntiare-core.workspace = true
+nuntiare-store.workspace = true
+nuntiare-fetch.workspace = true
+nuntiare-replication.workspace = true
+nuntiare-api-miniflux.workspace = true
+
+[lints]
+workspace = true
