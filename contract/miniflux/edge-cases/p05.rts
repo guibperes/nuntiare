@@ -1,0 +1,101 @@
+module p05
+
+# Fixed publication time of the synthetic entries: 2026-01-01T00:00:00Z.
+const T0 = 1767225600
+# Entries 0..TIES-1 share T0, so the tie group crosses the 100-item page boundary.
+const TIES = 120
+
+# List [0, 1, ..., n-1], used to drive @for-each.
+export fn seq(n) {
+  let out = []
+  for let i = 0; i < n; i = i + 1 {
+    out = rts.list.append(out, i)
+  }
+  return out
+}
+
+# JSON body for POST /v1/feeds/{id}/entries/import.
+export fn entryJson(i) {
+  let published = T0
+  if i >= TIES {
+    published = T0 - i * 60
+  }
+  return rts.json.stringify({
+    url: "https://nuntiare.invalid/p05/" + i,
+    title: "p05 entry " + i,
+    content: "<p>p05 synthetic entry " + i + "</p>",
+    external_id: "p05-" + i,
+    published_at: published,
+    status: "unread"
+  })
+}
+
+# Entry ids of a page, in response order.
+export fn ids(entries) {
+  let out = []
+  for let _, e range entries {
+    out = rts.list.append(out, e.id)
+  }
+  return out
+}
+
+export fn idsJson(entries) {
+  return rts.json.stringify(ids(entries))
+}
+
+# Number of ids present in more than one page.
+export fn duplicates(pages) {
+  let all = []
+  for let _, page range pages {
+    all = rts.list.concat(all, page)
+  }
+  return rts.len(all) - rts.len(rts.list.unique(all))
+}
+
+# Number of distinct ids across pages.
+export fn distinct(pages) {
+  let all = []
+  for let _, page range pages {
+    all = rts.list.concat(all, page)
+  }
+  return rts.len(rts.list.unique(all))
+}
+
+# True when ids of entries sharing T0 come in strictly descending order.
+export fn tiesByIdDesc(entries) {
+  let prev = null
+  for let _, e range entries {
+    if rts.time.parse("2006-01-02T15:04:05Z07:00", e.published_at) == T0 {
+      if prev != null and e.id >= prev {
+        return false
+      }
+      prev = e.id
+    }
+  }
+  return true
+}
+
+# Predicate for rts.list.any over GET /v1/categories.
+export fn isNewCategory(c) {
+  return c.title == "New Category"
+}
+
+# Id of the feed with this URL, or "" when there is none.
+export fn feedIdByUrl(feeds, url) {
+  for let _, f range feeds {
+    if f.feed_url == url {
+      return f.id
+    }
+  }
+  return ""
+}
+
+# Id of the category with exactly this title, or "" when there is none.
+export fn categoryIdByTitle(categories, title) {
+  for let _, c range categories {
+    if c.title == title {
+      return c.id
+    }
+  }
+  return ""
+}

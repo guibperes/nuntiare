@@ -1,0 +1,23 @@
+# P0.5 — S7: what the client sees when Miniflux is up but its database is down.
+#
+# Run ONLY after `docker compose -p nuntiare-p05 stop db` (see README):
+#   resterm run --env p05 --all --format pretty p05-health.http
+
+### S7: liveness ignores the database (process is up)
+# @name s7-liveness
+# @tag s7
+# @assert response.statusCode == 200
+GET {{baseUrl}}/liveness
+
+### S7: healthcheck reports the database failure
+# @name s7-healthcheck
+# @tag s7
+# @assert response.statusCode != 200 => "healthcheck still OK with the database down"
+GET {{baseUrl}}/healthcheck
+
+### S7: an authenticated API call (what the client's next request would hit)
+# @name s7-api-call
+# @tag s7
+# @assert response.statusCode != 200
+GET {{baseUrl}}/v1/me
+X-Auth-Token: {{token}}

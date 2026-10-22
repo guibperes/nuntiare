@@ -1,0 +1,271 @@
+# P0.5 — Miniflux edge cases (design §3.5: S1, S2, S6; §7: Q6).
+#
+# Run against a DEDICATED, EMPTY Miniflux instance (see README), in two steps:
+#   resterm run --env p05 --tag setup --fail-fast --persist-globals p05-edge-cases.http
+#   resterm run --env p05 --tag tests --persist-globals p05-edge-cases.http
+# Then clean up with p05-teardown.http.
+#
+# @use ./p05.rts
+
+###############################################################################
+# Setup
+###############################################################################
+
+### Guard: instance has no unread entries
+# @name guard-empty-unread
+# @tag setup
+# @assert response.statusCode == 200
+# @assert response.json().total == 0 => "use a dedicated, empty Miniflux instance"
+# @apply {query: {status: "unread", limit: 1}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+### Create the test category
+# @name setup-category
+# @tag setup
+# @assert response.statusCode == 201
+# @capture global p05.categoryId = response.json.id
+POST {{baseUrl}}/v1/categories
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{"title": "nuntiare-p05"}
+
+### Create the test feed (Miniflux fetches it now)
+# @name setup-feed
+# @tag setup
+# @assert response.statusCode == 201
+# @capture global p05.feedId = response.json.feed_id
+POST {{baseUrl}}/v1/feeds
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{"feed_url": "https://feeds.folha.uol.com.br/mercado/rss091.xml", "category_id": {{p05.categoryId}}}
+
+### Disable polling, so no new real entries appear during the tests
+# @name setup-feed-disable
+# @tag setup
+# @assert response.statusCode == 201
+PUT {{baseUrl}}/v1/feeds/{{p05.feedId}}
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{"disabled": true}
+
+### Mark the real entries read, so only synthetic entries are unread
+# @name setup-feed-read
+# @tag setup
+# @assert response.statusCode == 204
+PUT {{baseUrl}}/v1/feeds/{{p05.feedId}}/mark-all-as-read
+X-Auth-Token: {{token}}
+
+### Import 250 synthetic entries (0..119 share the same published_at)
+# @name setup-import
+# @tag setup
+# @for-each p05.seq(250) as i
+# @assert response.statusCode == 201
+POST {{baseUrl}}/v1/feeds/{{p05.feedId}}/entries/import
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{{= p05.entryJson(i) }}
+
+###############################################################################
+# S2 — ties across a page boundary (250 unread, 120 share published_at)
+###############################################################################
+
+### S2: page 0
+# @name s2-page-0
+# @tag s2 tests
+# @assert response.statusCode == 200
+# @assert response.json().total == 250
+# @assert rts.len(response.json().entries) == 100
+# @capture file p05.page0 = p05.idsJson(response.json().entries)
+# @apply {query: {status: "unread", limit: 100, offset: 0, order: "published_at", direction: "desc"}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+### S2: page 0 again — same ids in the same order?
+# @name s2-page-0-repeat
+# @tag s2 tests
+# @assert rts.json.equal(p05.ids(response.json().entries), rts.json.parse(vars.get("p05.page0"))) => "page 0 is not stable between calls"
+# @apply {query: {status: "unread", limit: 100, offset: 0, order: "published_at", direction: "desc"}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+### S2: page 1
+# @name s2-page-1
+# @tag s2 tests
+# @assert rts.len(response.json().entries) == 100
+# @capture file p05.page1 = p05.idsJson(response.json().entries)
+# @apply {query: {status: "unread", limit: 100, offset: 100, order: "published_at", direction: "desc"}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+### S2: page 2 — no entry skipped or repeated across the three pages
+# @name s2-page-2
+# @tag s2 tests
+# @assert rts.len(response.json().entries) == 50
+# @assert p05.duplicates([rts.json.parse(vars.get("p05.page0")), rts.json.parse(vars.get("p05.page1")), p05.ids(response.json().entries)]) == 0 => "an entry appears on two pages"
+# @assert p05.distinct([rts.json.parse(vars.get("p05.page0")), rts.json.parse(vars.get("p05.page1")), p05.ids(response.json().entries)]) == 250 => "an entry was skipped"
+# @apply {query: {status: "unread", limit: 100, offset: 200, order: "published_at", direction: "desc"}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+### S2 (info): does Miniflux break ties by id DESC?
+# @name s2-info-tie-order
+# @tag s2 info tests
+# @assert p05.tiesByIdDesc(response.json().entries) => "INFO: ties are not ordered by id DESC"
+# @apply {query: {status: "unread", limit: 250, order: "published_at", direction: "desc"}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+###############################################################################
+# S1 — empty page past the end
+###############################################################################
+
+### S1a: offset exactly at the end (250) returns an empty page, not an error
+# @name s1-past-end
+# @tag s1 tests
+# @assert response.statusCode == 200
+# @assert response.json().total == 250
+# @assert rts.len(response.json().entries) == 0
+# @apply {query: {status: "unread", limit: 100, offset: 250, order: "published_at", direction: "desc"}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+### S1b setup: the 50 oldest unread entries
+# @name s1-oldest-50
+# @tag s1 tests
+# @assert rts.len(response.json().entries) == 50
+# @capture file p05.oldest50 = p05.idsJson(response.json().entries)
+# @apply {query: {status: "unread", limit: 50, order: "published_at", direction: "asc"}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+### S1b setup: mark them read, leaving exactly 200 unread
+# @name s1-mark-read
+# @tag s1 tests
+# @assert response.statusCode == 204
+PUT {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{"entry_ids": {{p05.oldest50}}, "status": "read"}
+
+### S1b: unread = 200, the client's third page (offset 200) is empty
+# @name s1-unread-multiple
+# @tag s1 tests
+# @assert response.statusCode == 200
+# @assert response.json().total == 200
+# @assert rts.len(response.json().entries) == 0
+# @apply {query: {status: "unread", limit: 100, offset: 200, order: "published_at", direction: "desc"}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+### S1c setup: the 100 newest unread entries
+# @name s1-newest-100
+# @tag s1 tests
+# @assert rts.len(response.json().entries) == 100
+# @capture file p05.newest100 = p05.idsJson(response.json().entries)
+# @apply {query: {status: "unread", limit: 100, order: "published_at", direction: "desc"}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+### S1c setup: star them (needs Miniflux >= 2.3.2)
+# @name s1-star
+# @tag s1 tests
+# @assert response.statusCode == 204
+PUT {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{"entry_ids": {{p05.newest100}}, "starred": true}
+
+### S1c: starred = 100, the client's second page (offset 100) is empty
+# @name s1-starred-multiple
+# @tag s1 tests
+# @assert response.statusCode == 200
+# @assert response.json().total == 100
+# @assert rts.len(response.json().entries) == 0
+# @apply {query: {starred: true, limit: 100, offset: 100, order: "published_at", direction: "desc"}}
+GET {{baseUrl}}/v1/entries
+X-Auth-Token: {{token}}
+
+###############################################################################
+# Q6 — defaults of GET /v1/feeds/{id}/entries without a query
+###############################################################################
+
+### Q6: no query at all (inspect with --body, see README)
+# @name q6-feed-entries-defaults
+# @tag q6 tests
+# @assert response.statusCode == 200
+GET {{baseUrl}}/v1/feeds/{{p05.feedId}}/entries
+X-Auth-Token: {{token}}
+
+###############################################################################
+# S6 — duplicates and the client's add-feed fallback
+###############################################################################
+
+### S6: duplicate category title is rejected with 400 + error_message
+# @name s6-category-duplicate
+# @tag s6 tests
+# @assert response.statusCode == 400
+# @assert rts.json.has(response.json(), "error_message")
+POST {{baseUrl}}/v1/categories
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{"title": "nuntiare-p05"}
+
+### S6 (info): is the uniqueness check case-insensitive? (201 = no, 400 = yes)
+# @name s6-info-category-case
+# @tag s6 info tests
+# @assert response.statusCode == 201 || response.statusCode == 400
+# @capture global p05.caseCategoryId = response.statusCode == 201 ? response.json().id : ""
+POST {{baseUrl}}/v1/categories
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{"title": "NUNTIARE-P05"}
+
+### S6: client fallback, step 1 — "New Category" is created
+# @name s6-new-category-first
+# @tag s6 tests
+# @assert response.statusCode == 201
+# @capture global p05.newCategoryId = response.json.id
+POST {{baseUrl}}/v1/categories
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{"title": "New Category"}
+
+### S6: client fallback, step 2 — second attempt fails with 400
+# @name s6-new-category-second
+# @tag s6 tests
+# @assert response.statusCode == 400
+# @assert rts.json.has(response.json(), "error_message")
+POST {{baseUrl}}/v1/categories
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{"title": "New Category"}
+
+### S6: client fallback, step 3 — the client finds it by title
+# @name s6-new-category-lookup
+# @tag s6 tests
+# @assert response.statusCode == 200
+# @assert rts.list.any(response.json(), p05.isNewCategory)
+GET {{baseUrl}}/v1/categories
+X-Auth-Token: {{token}}
+
+### S6: duplicate feed URL is rejected with 400 + error_message
+# @name s6-feed-duplicate
+# @tag s6 tests
+# @assert response.statusCode == 400
+# @assert rts.json.has(response.json(), "error_message")
+POST {{baseUrl}}/v1/feeds
+X-Auth-Token: {{token}}
+Content-Type: application/json
+
+{"feed_url": "https://feeds.folha.uol.com.br/mercado/rss091.xml", "category_id": {{p05.categoryId}}}
