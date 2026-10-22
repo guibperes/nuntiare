@@ -1,8 +1,9 @@
 # nuntiare — Decentralized RSS backend for news-flash / eilmeldung
 
-> **nuntiare** (Latin: "to announce"). Daemon binary: `nuntiare serve`. Each running instance is a **shard**.
-> Status: design + implementation plan. Language: Rust.
-> Last updated: 2026-10-18.
+> **nuntiare** (Latin: "to announce"). Daemon binary: `nuntiared`. Each running instance is a **shard**.
+> Status: design. Language: Rust. The implementation plan lives in the GitHub issues
+> (one per task, grouped by milestone).
+> Last updated: 2026-10-22.
 
 ## 1. Goal
 
@@ -143,7 +144,8 @@ offline: an HTTP error from `/healthcheck` still counts as reachable.
 
 Endpoints observed from eilmeldung 1.9.0 and confirmed in the news-flash source (§2.3).
 Response shapes must match Miniflux's JSON (field names, types, nullability). The
-executable reference is the resterm collection of (`contract/`), run against the real Miniflux.
+executable reference is the resterm collection of P0.1 (`contract/miniflux/`), run
+against the real Miniflux; fixtures live in `fixtures/miniflux/`.
 
 ### 3.1 Authentication
 
@@ -191,15 +193,15 @@ uses the current time.
 
 ### 3.3 Read endpoints
 
-| Method | Path                     | When the client calls it          | Notes                                            |
-| ------ | ------------------------ | --------------------------------- | ------------------------------------------------ |
-| GET    | `/healthcheck`           | every 60 s and on network changes | plain `OK`; decides online/offline (§2.3)        |
-| GET    | `/v1/me`                 | login with token                  | user object                                      |
-| GET    | `/v1/categories`         | every sync; after adding a feed   | category array                                   |
-| GET    | `/v1/feeds`              | every sync                        | feed array                                       |
-| GET    | `/v1/feeds/{id}`         | after adding a feed               | single feed                                      |
-| GET    | `/v1/feeds/{id}/entries` | after adding a feed (empty query) | `{total, entries}`; Miniflux defaults apply (Q6) |
-| GET    | `/v1/entries`            | every sync                        | `{total, entries}`, query shapes below           |
+| Method | Path                     | When the client calls it          | Notes                                                                                                                                  |
+| ------ | ------------------------ | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/healthcheck`           | every 60 s and on network changes | `200` + plain `OK`; decides online/offline (§2.3). Miniflux answers `503` + plain text when its database is unreachable (P0.5)         |
+| GET    | `/v1/me`                 | login with token                  | user object                                                                                                                            |
+| GET    | `/v1/categories`         | every sync; after adding a feed   | category array                                                                                                                         |
+| GET    | `/v1/feeds`              | every sync                        | feed array                                                                                                                             |
+| GET    | `/v1/feeds/{id}`         | after adding a feed               | single feed                                                                                                                            |
+| GET    | `/v1/feeds/{id}/entries` | after adding a feed (empty query) | `{total, entries}` with Miniflux defaults (Q6): `limit=100`, `order=published_at`, `direction=asc`, no status filter (read and unread) |
+| GET    | `/v1/entries`            | every sync                        | `{total, entries}`, query shapes below                                                                                                 |
 
 `/v1/entries` query shapes (all `order=published_at&direction=desc`):
 
@@ -213,26 +215,28 @@ Requirements:
   error (happens whenever the count is a multiple of 100).
 - Deterministic order with a tie-breaker: `published_at DESC, id DESC`. Without it,
   entries with equal timestamps can be skipped at a page boundary, and the client then
-  marks them read locally until the next sync.
+  marks them read locally until the next sync. Verified in P0.5: Miniflux defines no
+  tie-breaker (ties come in physical PostgreSQL order); its pagination was consistent
+  in the tests only because data and plan did not change between pages.
 - `total` is required by the model but not used by the client.
 - Indexes on `(status, published_at DESC, id DESC)` and `(starred, published_at DESC, id DESC)`.
 
 ### 3.4 Write endpoints
 
-| Method | Path                        | Body                      | Shard semantics                                                                                                                     |
-| ------ | --------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| PUT    | `/v1/entries`               | `{entry_ids, status}`     | `SetRead` per id → `204`. Bodies can carry thousands of ids (mark feed/category/all as read): check the body size limit             |
-| PUT    | `/v1/entries/{id}/bookmark` | —                         | resolve the toggle into `SetStarred(value)` (**value, not toggle**) → `204`. Which value: see Q5                                    |
-| POST   | `/v1/categories`            | `{title}`                 | `CreateCategory` → `201` + category. **Duplicate title → `400`** with `error_message` (the client's add-feed fallback relies on it) |
-| PUT    | `/v1/categories/{id}`       | `{title}`                 | `RenameCategory` → `201` + category                                                                                                 |
-| DELETE | `/v1/categories/{id}`       | —                         | **deviation**: move feeds to the default category, then delete → `204`                                                              |
-| POST   | `/v1/feeds`                 | `{feed_url, category_id}` | `CreateFeed` + **synchronous** first fetch → `201` + `{feed_id}`                                                                    |
-| PUT    | `/v1/feeds/{id}`            | `{title?, category_id?}`  | `RenameFeed` / `MoveFeed` → `201` + feed                                                                                            |
-| DELETE | `/v1/feeds/{id}`            | —                         | `DeleteFeed` → `204`                                                                                                                |
+| Method | Path                        | Body                      | Shard semantics                                                                                                                                                                     |
+| ------ | --------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PUT    | `/v1/entries`               | `{entry_ids, status}`     | `SetRead` per id → `204`. Bodies can carry thousands of ids (mark feed/category/all as read): check the body size limit                                                             |
+| PUT    | `/v1/entries/{id}/bookmark` | —                         | resolve the toggle into `SetStarred(value)` (**value, not toggle**) → `204`. Which value: see Q5                                                                                    |
+| POST   | `/v1/categories`            | `{title}`                 | `CreateCategory` → `201` + category. **Duplicate title → `400`** with `error_message`, compared **case-insensitively** (verified P0.5; the client's add-feed fallback relies on it) |
+| PUT    | `/v1/categories/{id}`       | `{title}`                 | `RenameCategory` → `201` + category                                                                                                                                                 |
+| DELETE | `/v1/categories/{id}`       | —                         | **deviation**: move feeds to the default category, then delete → `204`                                                                                                              |
+| POST   | `/v1/feeds`                 | `{feed_url, category_id}` | `CreateFeed` + **synchronous** first fetch → `201` + `{feed_id}`                                                                                                                    |
+| PUT    | `/v1/feeds/{id}`            | `{title?, category_id?}`  | `RenameFeed` / `MoveFeed` → `201` + feed                                                                                                                                            |
+| DELETE | `/v1/feeds/{id}`            | —                         | `DeleteFeed` → `204`                                                                                                                                                                |
 
 A default category always exists (Miniflux has no uncategorized feeds) and cannot be
 deleted. `POST /v1/import` is not needed: the client's OPML import is broken
-upstream (§2.3); OPML goes through `nuntiare import-opml`.
+upstream (§2.3); OPML goes through `nuntiared import-opml`.
 
 ### 3.5 Edge cases to map
 
@@ -246,6 +250,16 @@ upstream (§2.3); OPML goes through `nuntiare import-opml`.
 | S6  | Duplicate category title; add a feed without a category                          | the client's fallback path                                                        | `400` + `error_message`            | resterm vs Miniflux                                   |
 | S7  | `/healthcheck` returns an error                                                  | the client still treats the service as reachable                                  | see Q8                             | resterm vs Miniflux, then shard                       |
 | S8  | Mark thousands of entries read in one request                                    | request body size                                                                 | accept large bodies                | shard                                                 |
+
+**Results against Miniflux (P0.5, 2026-10-22)**, on a dedicated instance with 250
+synthetic entries (120 sharing one `published_at` across the 100-item boundary):
+
+| #   | Result                                                                                                                                                                                                                     |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| S1  | offset past the end → `200` with an empty page, for unread (200) and starred (100)                                                                                                                                         |
+| S2  | pages 0–2 had no skipped or repeated entry, page 0 stable across calls, three repetitions consistent; but ties are ordered neither by id ASC nor DESC — Miniflux defines no tie-breaker                                    |
+| S6  | duplicate category and duplicate feed URL → `400` + `error_message`; title uniqueness is case-insensitive; "New Category" fallback works (`201`, `400`, lookup by title)                                                   |
+| S7  | database down: `/liveness` `200` `OK`; `/healthcheck` `503` plain text; `/v1/me` `500` + JSON `error_message`. eilmeldung stays online (no offline banner) and a sync fails, showing Miniflux's `error_message` in the TUI |
 
 ## 4. Architecture
 
@@ -277,7 +291,7 @@ nuntiare/
 │   ├── nuntiare-api-miniflux/    # v1 facade: axum routes, Miniflux DTOs, i64 id mapping
 │   └── nuntiare-api-native/      # v2 native API (placeholder)
 └── bins/
-    └── nuntiare/                # wiring, config, CLI (serve, token, import-opml, join, status)
+    └── nuntiared/                # wiring, config, CLI (serve, token, import-opml, join, status)
 ```
 
 Dependency rule (enforced by crate boundaries):
@@ -287,7 +301,7 @@ nuntiare-api-miniflux ──┐
 nuntiare-api-native   ──┼──► nuntiare-core ◄── nuntiare-store
 nuntiare-replication  ──┘          ▲       ◄── nuntiare-fetch
                                    │
-                         nuntiare (wires adapters into core ports)
+                         nuntiared (wires adapters into core ports)
 ```
 
 APIs never touch `nuntiare-store` directly. `nuntiare-core` defines ports (traits) that
@@ -371,6 +385,18 @@ id-mapping cache, peer connection state.
 - Separate listener for peers (not the facade port); payload JSON first, binary later
   if needed.
 - Clocks: Hybrid Logical Clocks, never wall-clock comparison.
+- **Join:** a join command registers both shards with each other; with two shards the
+  newcomer copies the full op log.
+- **Membership (phase 3):** the set of shards is itself replicated (`PeerJoin` /
+  `PeerLeave` ops); a dead shard is removed explicitly with a `peer remove` command.
+- **Peer selection (phase 3):** full mesh for a few shards; random-k gossip as an option.
+- **Discovery (phase 3):** mDNS (`_nuntiare._tcp`) on the LAN, plus static addresses
+  (e.g. Tailscale).
+- **Compaction (phase 3):** ops acknowledged by every member (the minimum of their
+  vectors) can be truncated; a new shard then bootstraps from a state snapshot plus a
+  vector. Tombstones are garbage-collected under the same rule.
+- **Operations:** a `status` command shows peers, vectors, replication lag and last fetch
+  per feed; metrics expose op-log size, lag per peer and fetch counts.
 
 ### 4.5 Fetch coordination
 
@@ -400,6 +426,9 @@ id-mapping cache, peer connection state.
 - Wire types live in a small `nuntiare-proto` crate so the news-flash provider can depend
   on it without pulling the daemon.
 - Miniflux facade stays as an optional compatibility adapter.
+- Shard unavailability (store unusable) is signaled explicitly by the native API, and the
+  news-flash provider reacts to it (e.g. offline mode with queued writes) instead of
+  surfacing raw `500` errors (D16).
 
 ### 4.8 Suggested crates
 
@@ -409,136 +438,42 @@ id-mapping cache, peer connection state.
 `cr-sqlite` was considered and rejected for v1: a hand-written op log keeps semantics
 explicit (toggle resolution, category deletion) and avoids a native extension.
 
-## 5. Implementation plan
+### 4.9 Testing strategy
 
-Each task lists its acceptance criterion ("Done when"). Phases are cumulative.
+| Level        | What is verified                                                                                                                                       | How                                                                                                                                       |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Contract     | facade responses have Miniflux's shapes, status codes and edge-case behavior (§3)                                                                      | the resterm collection in `contract/miniflux/` runs against Miniflux and against the shard; `insta` snapshots against the golden fixtures |
+| Merge engine | applying ops is idempotent and order-independent                                                                                                       | `proptest`                                                                                                                                |
+| Convergence  | two (later N) in-process shards over an in-memory transport, with random commands, partitions and delivery orders, end with equal state hashes         | `proptest`                                                                                                                                |
+| Scenarios    | offline travel, concurrent rename/delete, move into a deleted category, star/unstar on two shards, S3–S5 (§3.5)                                        | integration tests                                                                                                                         |
+| Partitions   | 3–5 shards in containers or network namespaces, random partitions and restarts, converge after healing                                                 | scripted environment                                                                                                                      |
+| Acceptance   | T1–T15 (§2.1) and the §3.5 edge cases with eilmeldung on top of the shard; sync faster than Miniflux with token (~3.9 s server time for ~4,300 unread) | manual + resterm                                                                                                                          |
+| Dogfooding   | daily use on one machine (M1), then desktop + notebook over LAN and Tailscale (M2)                                                                     | —                                                                                                                                         |
 
-### Phase 0 — Preparation
+## 5. Decision log
 
-- [x] **P0.1 Golden fixtures.** resterm collection (`contract/miniflux/`) recorded from
-      real eilmeldung traffic and curated per endpoint; responses in `fixtures/miniflux/`.
-      _Done when_ every read and write endpoint has at least one recorded response.
-- [x] **P0.2 Close Q1 and Q2** (open questions, §7). Answered from the news-flash
-      source code (§2.3).
-- [ ] **P0.3 Report upstream bugs** to eilmeldung/news-flash (§2.3): category delete
-      ignores `remove_children` (T12); `import_opml` uses GET and always returns an error.
-- [ ] **P0.5 Map edge cases against Miniflux.** Add S1, S2, S6 and S7 (§3.5) to the
-      resterm collection, with `@assert` on status codes and response shape.
-      _Done when_ they run green against the Miniflux container and Q6 is answered.
-- [ ] **P0.4 Repository bootstrap.** Check that `nuntiare` is free on crates.io and
-      GitHub; Cargo workspace with the empty crates of §4.2, CI running
-      `cargo fmt --check`, `cargo clippy -D warnings` and `cargo test`.
+Decisions taken while designing (2026-10-17 to 2026-10-20), with the reason for each.
 
-### Phase 1 — Single shard, consistent with the TUI
+| #   | Decision                                                                                               | Reason                                                                                                                                                                                                         |
+| --- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | Peer shards, no master/slave, no central server                                                        | must work offline away from home and converge on return; replaces manual copying of eilmeldung's state directory between desktop and notebook                                                                  |
+| D2  | No leader election for fetching                                                                        | deterministic entry IDs make duplicate fetches harmless; election under partitions is the hardest part of distributed systems and buys nothing here. A preferred shard is kept only as a fetch priority (§4.5) |
+| D3  | Field-level merge (LWW + tombstones), not "newest shard wins"                                          | comparing whole-shard timestamps loses half of the changes when both sides changed while apart                                                                                                                 |
+| D4  | v1 speaks the Miniflux API as a facade                                                                 | news-flash already ships a Miniflux provider; validated end-to-end with eilmeldung 1.9.0 (§2)                                                                                                                  |
+| D5  | Core decoupled from any API; v2 native API in the news-flash core                                      | the Miniflux contract forces full-snapshot syncs and toggles; a native API can be incremental and set-based                                                                                                    |
+| D6  | `X-Auth-Token`, never per-request password hashing                                                     | measured: Basic auth doubled sync time (~8.5 s vs ~3.9 s)                                                                                                                                                      |
+| D7  | One shard per device on `localhost`                                                                    | the client never goes offline: no partial offline queue, no freeze on reconnect (T14/T15)                                                                                                                      |
+| D8  | Hand-written op log over cr-sqlite                                                                     | explicit control of semantics (toggle resolution, category deletion) and no native extension                                                                                                                   |
+| D9  | Rust                                                                                                   | user's choice; also matches news-flash and eilmeldung, which eases the v2 provider                                                                                                                             |
+| D10 | Rejected: Syncthing on eilmeldung's state directory                                                    | syncing a live SQLite file on two machines risks conflicts and corruption                                                                                                                                      |
+| D11 | Rejected for the long term: single Miniflux on the desktop + Tailscale                                 | zero code, but no new articles and an offline client whenever the desktop is off                                                                                                                               |
+| D12 | Contract mapped with resterm (`.http` files), recorded from real eilmeldung traffic                    | assertions (`@assert`), JUnit output for CI, `record` mode as a proxy between client and server; replaced Posting, whose v3 has no scripting or assertions                                                     |
+| D13 | Contract derived from the client's source code, not only from captures                                 | captures show what happened once; the serde models and the sync loop show what the client requires (status codes, required fields, pagination stop rule)                                                       |
+| D14 | License: GPL-3.0-or-later for the whole workspace                                                      | same license as news-flash, eilmeldung and miniflux_api; derivatives stay open. A permissive license for `nuntiare-proto` can be reconsidered at P4.1 to ease adoption by news-flash                           |
+| D15 | Toolchain defined once in `rust-toolchain.toml`; mise reads it (`idiomatic_version_file_enable_tools`) | rustup, CI and mise agree on one file; avoids mise's `RUSTUP_TOOLCHAIN` silently overriding the project toolchain                                                                                              |
+| D16 | v1: store failures answered with `500` + `error_message` (Miniflux behavior); proper handling in v2    | the Miniflux contract has no way to tell the client "shard unavailable, queue your writes" short of breaking connections; a palliative now, designed properly in the native API and the news-flash provider    |
 
-- [ ] **P1.1 Domain model** in `nuntiare-core`: IDs, `Feed`, `Category`, `Entry`,
-      `Command`, `EntryQuery`, `Page`. _Done when_ it compiles with no I/O dependencies.
-- [ ] **P1.2 HLC + op model.** Commands produce ops; merge engine applies ops to state.
-      _Done when_ property tests prove apply is idempotent and order-independent.
-- [ ] **P1.3 SQLite store.** Schema and migrations for ops + materialized tables,
-      indexes from §3.3, WAL mode, single writer. _Done when_ restart preserves state
-      and the op log replays to an identical state.
-- [ ] **P1.4 Entry identity + fetcher.** `reqwest` + `feed-rs`, conditional GET,
-      identity rule of §4.3, per-feed interval scheduler.
-      _Done when_ refetching an unchanged feed creates no new entries.
-- [ ] **P1.5 Synchronous fetch on feed creation** (finding 7).
-- [ ] **P1.6 CLI.** `nuntiare token create|revoke`, `nuntiare import-opml`,
-      `nuntiare export-opml`. _Done when_ the current OPML imports with all feeds and
-      categories.
-- [ ] **P1.7 Facade: auth + read endpoints** with deterministic `i64` mapping,
-      `/healthcheck`, the status codes, error bodies and required fields of §3.2, and the
-      ordering rules of §3.3. _Done when_ snapshot tests (`insta`) match the shape of the
-      P0.1 fixtures and the resterm collection passes against `nuntiare`.
-- [ ] **P1.8 Facade: write endpoints** with the semantics of §3.4 (toggle → value,
-      category delete → move to default). _Done when_ integration tests cover every write
-      endpoint.
-- [ ] **P1.9 Retention** (§4.3) with a minimal row kept for purged entries.
-- [ ] **P1.10 Daemon packaging.** TOML config in XDG dirs, `tracing` logs, graceful
-      shutdown, systemd **user** unit.
-- [ ] **P1.11 Acceptance with eilmeldung.** Run the T1–T15 table against the shard.
-      _Done when_ all pass, T12 behaves as the user expects, and sync takes less time
-      than with Miniflux + token (~3.9 s server time for ~4,300 unread).
-- [ ] **P1.12 Dogfood on one machine.** Back up eilmeldung state, point it at the
-      local shard, use it daily for a week.
-
-**Milestone M1:** one machine reads exclusively through its shard with no regressions.
-
-### Phase 2 — Two shards
-
-- [ ] **P2.1 Shard identity.** ULID + name, per-origin `seq`.
-- [ ] **P2.2 Version vectors** and the "ops missing for vector V" query.
-- [ ] **P2.3 Peer protocol.** Separate listener; endpoints for hello (identity +
-      vector) and op exchange in batches.
-- [ ] **P2.4 Peer authentication** with a pre-shared secret (HMAC).
-      _Done when_ unsigned or wrongly signed requests are rejected.
-- [ ] **P2.5 Anti-entropy loop.** Periodic, plus a nudge after local writes; static
-      peer list in config. _Done when_ a write on A appears on B within one cycle.
-- [ ] **P2.6 Join / bootstrap.** `nuntiare join <peer>` copies the full op log
-      (acceptable for two shards).
-- [ ] **P2.7 Fetch coordination** (§4.5) with the preferred shard and jitter.
-      _Done when_, with both online, only the preferred shard fetches under normal
-      conditions.
-- [ ] **P2.8 Convergence simulation.** Two in-process shards over an in-memory
-      transport; `proptest` generates random commands, partitions and delivery orders.
-      _Done when_ the state hashes are equal after quiescence, across thousands of cases.
-- [ ] **P2.9 Scenario tests:**
-  - notebook offline for days, reading and adding feeds, then reconnecting;
-  - concurrent rename and delete of the same feed;
-  - feed moved into a category deleted concurrently;
-  - the same entry starred on A and unstarred on B;
-  - S3, S4 and S5 of §3.5 with eilmeldung on top of each shard.
-- [ ] **P2.10 `nuntiare status`.** Peers, vectors, replication lag, last fetch per feed.
-- [ ] **P2.11 Real-world acceptance.** Desktop + notebook on the LAN, then over
-      Tailscale; repeat the offline-travel story with eilmeldung on both machines.
-
-**Milestone M2:** desktop and notebook converge automatically; manual state copying is
-retired.
-
-### Phase 3 — More than two shards
-
-- [ ] **P3.1 Membership** as a replicated set (`PeerJoin` / `PeerLeave`);
-      `nuntiare peer remove` for dead shards.
-- [ ] **P3.2 Peer selection.** Full mesh for small N; random-k gossip as an option.
-- [ ] **P3.3 Discovery.** mDNS (`_nuntiare._tcp`) on the LAN, plus static addresses
-      (Tailscale).
-- [ ] **P3.4 TLS with pinned certificates** (§4.6).
-- [ ] **P3.5 Op log compaction.** Truncate ops acknowledged by all members (minimum
-      vector); new shards bootstrap from a state snapshot + vector.
-- [ ] **P3.6 Tombstone GC** after all members acknowledge.
-- [ ] **P3.7 Fetch coordination for N shards** (ordered preference list).
-- [ ] **P3.8 Partition testing.** 3–5 shards in containers or network namespaces,
-      random partitions and restarts. _Done when_ convergence is reached after healing.
-- [ ] **P3.9 Observability.** Metrics for op-log size, lag per peer and fetch counts.
-
-**Milestone M3:** a third device joins, is removed and rejoins without manual repair.
-
-### Phase 4 — v2 (not scheduled)
-
-- [ ] Specify the native API (`nuntiare-proto`), incremental via `changes_since`.
-- [ ] news-flash provider in the core; submit upstream.
-- [ ] Make the Miniflux facade an optional cargo feature.
-
-## 6. Decision log
-
-Decisions taken while designing (2026-10-17 and 2026-10-18), with the reason for each.
-
-| #   | Decision                                                                            | Reason                                                                                                                                                                                                         |
-| --- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Peer shards, no master/slave, no central server                                     | must work offline away from home and converge on return; replaces manual copying of eilmeldung's state directory between desktop and notebook                                                                  |
-| D2  | No leader election for fetching                                                     | deterministic entry IDs make duplicate fetches harmless; election under partitions is the hardest part of distributed systems and buys nothing here. A preferred shard is kept only as a fetch priority (§4.5) |
-| D3  | Field-level merge (LWW + tombstones), not "newest shard wins"                       | comparing whole-shard timestamps loses half of the changes when both sides changed while apart                                                                                                                 |
-| D4  | v1 speaks the Miniflux API as a facade                                              | news-flash already ships a Miniflux provider; validated end-to-end with eilmeldung 1.9.0 (§2)                                                                                                                  |
-| D5  | Core decoupled from any API; v2 native API in the news-flash core                   | the Miniflux contract forces full-snapshot syncs and toggles; a native API can be incremental and set-based                                                                                                    |
-| D6  | `X-Auth-Token`, never per-request password hashing                                  | measured: Basic auth doubled sync time (~8.5 s vs ~3.9 s)                                                                                                                                                      |
-| D7  | One shard per device on `localhost`                                                 | the client never goes offline: no partial offline queue, no freeze on reconnect (T14/T15)                                                                                                                      |
-| D8  | Hand-written op log over cr-sqlite                                                  | explicit control of semantics (toggle resolution, category deletion) and no native extension                                                                                                                   |
-| D9  | Rust                                                                                | user's choice; also matches news-flash and eilmeldung, which eases the v2 provider                                                                                                                             |
-| D10 | Rejected: Syncthing on eilmeldung's state directory                                 | syncing a live SQLite file on two machines risks conflicts and corruption                                                                                                                                      |
-| D11 | Rejected for the long term: single Miniflux on the desktop + Tailscale              | zero code, but no new articles and an offline client whenever the desktop is off                                                                                                                               |
-| D12 | Contract mapped with resterm (`.http` files), recorded from real eilmeldung traffic | assertions (`@assert`), JUnit output for CI, `record` mode as a proxy between client and server; replaced Posting, whose v3 has no scripting or assertions                                                     |
-| D13 | Contract derived from the client's source code, not only from captures              | captures show what happened once; the serde models and the sync loop show what the client requires (status codes, required fields, pagination stop rule)                                                       |
-
-## 7. Open questions
+## 6. Open questions
 
 ### Resolved
 
@@ -548,6 +483,15 @@ Decisions taken while designing (2026-10-17 and 2026-10-18), with the reason for
 - **Q2 — Offline queue contents.** Resolved 2026-10-18 from the source: `Read`,
   `Unread`, `Mark`, `Unmark`, `Tag`, `Untag`; structural changes are not queued.
   Opposite pairs cancel out; stars are replayed as toggles (§2.3).
+- **Q6 — Defaults of `GET /v1/feeds/{id}/entries`.** Resolved 2026-10-22 in P0.5:
+  `limit=100`, ordered by `published_at` **ascending**, read and unread included. After
+  adding a feed with more than 100 items, the client first receives the 100 oldest; the
+  newer ones arrive with the next sync's unread list.
+- **Q8 — Health semantics (S7).** Resolved 2026-10-22 (D16): in v1 the shard behaves
+  like Miniflux — when the store is unusable, API calls answer `500` with
+  `error_message` and `/healthcheck` answers non-`200`; the client stays online, shows
+  the error and reverts failed writes. A proper unavailable/offline handling is part of
+  the v2 native API and news-flash provider.
 
 ### Open
 
@@ -563,15 +507,11 @@ Decisions taken while designing (2026-10-17 and 2026-10-18), with the reason for
   invert the current shard value (simple, wrong in S4); invert the value last served
   to that client (needs per-entry "last served" state); accept the risk and shorten the
   client's sync interval.
-- **Q6 — Defaults of `GET /v1/feeds/{id}/entries` without a query** (limit, order,
-  status) on Miniflux. Verify in P0.5.
 - **Q7 — Pagination consistency (S3).** How far to go: accept the transient effect,
   defer applying replicated ops while a client sync is in progress, or serve pages from
   a consistent snapshot.
-- **Q8 — Health semantics (S7).** When should the shard's `/healthcheck` report an
-  error, given that the client treats HTTP errors as reachable?
 
-## 8. References
+## 7. References
 
 - Miniflux API: <https://miniflux.app/docs/api.html>
 - Miniflux configuration: <https://miniflux.app/docs/configuration.html>

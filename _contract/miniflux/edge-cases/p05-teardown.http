@@ -1,0 +1,57 @@
+# P0.5 — remove everything p05-edge-cases.http created.
+#
+# Idempotent: it looks the leftovers up by URL and title instead of trusting
+# captured ids, so it also cleans up after a partial or failed run.
+#   resterm run --env p05 --all --persist-globals p05-teardown.http
+#
+# @use ./p05.rts
+
+### Teardown: find the test feed
+# @name teardown-find-feed
+# @tag teardown
+# @assert response.statusCode == 200
+# @capture global p05.feedId = p05.feedIdByUrl(response.json(), "https://feeds.folha.uol.com.br/mercado/rss091.xml")
+GET {{baseUrl}}/v1/feeds
+X-Auth-Token: {{token}}
+
+### Teardown: find the test categories
+# @name teardown-find-categories
+# @tag teardown
+# @assert response.statusCode == 200
+# @capture global p05.categoryId = p05.categoryIdByTitle(response.json(), "nuntiare-p05")
+# @capture global p05.newCategoryId = p05.categoryIdByTitle(response.json(), "New Category")
+# @capture global p05.caseCategoryId = p05.categoryIdByTitle(response.json(), "NUNTIARE-P05")
+GET {{baseUrl}}/v1/categories
+X-Auth-Token: {{token}}
+
+### Teardown: delete the test feed (and its synthetic entries)
+# @name teardown-feed
+# @tag teardown
+# @when vars.get("p05.feedId") != ""
+# @assert response.statusCode == 204
+DELETE {{baseUrl}}/v1/feeds/{{p05.feedId}}
+X-Auth-Token: {{token}}
+
+### Teardown: delete "New Category"
+# @name teardown-new-category
+# @tag teardown
+# @when vars.get("p05.newCategoryId") != ""
+# @assert response.statusCode == 204
+DELETE {{baseUrl}}/v1/categories/{{p05.newCategoryId}}
+X-Auth-Token: {{token}}
+
+### Teardown: delete the case-variant category, if it exists
+# @name teardown-case-category
+# @tag teardown
+# @when vars.get("p05.caseCategoryId") != ""
+# @assert response.statusCode == 204
+DELETE {{baseUrl}}/v1/categories/{{p05.caseCategoryId}}
+X-Auth-Token: {{token}}
+
+### Teardown: delete the test category
+# @name teardown-category
+# @tag teardown
+# @when vars.get("p05.categoryId") != ""
+# @assert response.statusCode == 204
+DELETE {{baseUrl}}/v1/categories/{{p05.categoryId}}
+X-Auth-Token: {{token}}
